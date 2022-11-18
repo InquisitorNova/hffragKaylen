@@ -1,0 +1,2 @@
+model_checkpoint_path: "DeepNetWeights&Biases-0041.ckpt"
+all_model_checkpoint_paths: "DeepNetWeights&Biases-0041.ckpt"
