@@ -166,29 +166,50 @@ def flatten(x_values, maxsize=-1, MASKVAL=-999):
 
 # In[110]:
 
+def LogNormal_Loss_Function(true,mean_convariance_matrix):
+    
+    """A custom loss function designed to force the neural network 
+    to return a prediction and associated uncertainty for target features"""
 
-def LogNormal_Loss_Function(true, meanscovs_matrix):
-    """
-    This is a loss function hand crafted for the task of ensuring the neural network 
-    learns to predict the true value of the transverse momentum and it's uncertainty
-    The logNormal constrains the neural network, by forcing upon it what it's output layers should be
-    and what the weights and biases of the neural network will be in order to predict the means, variances and covariances
-    """
+    #Identify the number of target features
     n_targets = np.shape(true)[1]
-    # The first n_target of the features are the means
-    means = meanscovs_matrix[:, :n_targets]
-    # The second n_target of the feautres are the standard deviations
-    logsigma = meanscovs_matrix[:, n_targets:2*n_targets]
-    # The rest of the targets are the covariances
-    logcosigma = meanscovs_matrix[:,2*n_targets:]
 
-    loss = 0
-    for n_target in range(n_targets): #Sum the individual losses and use that as the loss for the neural network
-        loss += ((means[:, n_target] - true[:, n_target])**2) / (2 * keras.backend.exp(logsigma[:, n_target])**2) + logsigma[:, n_target]
+    #Allocate the first n outputs of the dense layer to represent the mean
+    means = mean_convariance_matrix[:, :n_targets]
 
-    # Build loss function
-    return loss
+    #Allocate the second n outputs of the dense layer to represent the variances
+    logvariances = mean_convariance_matrix[:, n_targets: 2* n_targets]
 
+    #Allocate the last n outputs of th4e dense layer to represent the covariances
+    logcovariances = mean_convariance_matrix[:, 2*n_targets:]
+
+
+    #Calculate the logNormal loss
+    sum_loss = 0
+    for target in range(n_targets):
+        sum_loss += (1/2)*keras.backend.log(2*np.pi) + logvariances[:,target] + ((true[:,target] - means[:,target])**2)/(2*keras.backend.exp(logvariances[:,target])**2)
+    
+    return sum_loss
+
+def Root_Mean_Square_Metric(true, mean_convariance_matrix):
+
+    """
+    A custom metric used to discern the accuracy of the model without influencing
+    how the models weights and biases are adjusted
+    """
+    #Determine the number of targets
+    n_targets = np.shape(true)[1]
+
+    #Select the predicted values of the targets
+    means = mean_convariance_matrix[:, :n_targets]
+
+    #Determine the root mean square of the values
+    diff = tf.math.subtract(true,means)
+    square = tf.square(diff)
+    mean_square_error = tf.math.reduce_sum(square)
+    #Return the accuracy
+    root_square_error = tf.math.sqrt(mean_square_error)
+    return root_square_error.numpy()
 
 # In[111]:
 
@@ -236,7 +257,9 @@ def LogNormal_Loss_Function_Check(true,meanscovs_matrix):
 
 def expontial_decay(lr0,s):
     def exponential_decay_fn(epoch):
-        return lr0 * 0.95**(epoch/s)
+        if epoch % 100 == 0:
+            return lr0 * 10
+        return lr0 * 0.40**(epoch/s)
     return exponential_decay_fn
 
 
@@ -256,16 +279,18 @@ def DeepSetNeuralNetwork(track_layers, jet_layers, n_targets,optimizer, MASKVAL=
     outputs = inputs  # Creates another layer to pass the inputs onto the ouputs
     outputs = layers.Masking(mask_value=MASKVAL)(outputs) # Masks the MASKVAl values
 
-    counter = 0
+    #counter = 0
     for nodes in track_layers[:-1]:
         #The first neural network is a series of dense layers and is applied to each track using the time distributed layer
         outputs = layers.TimeDistributed( 
-            layers.Dense(nodes, activation="elu", kernel_initializer= "he_normal", kernel_regularizer = regularizers.L2(0.01)))(outputs) # We use relu and the corresponding he_normal for the activation function and bias initializer
+            layers.Dense(nodes, activation="elu", kernel_initializer= "he_normal"))(outputs) # We use relu and the corresponding he_normal for the activation function and bias initializer
+        """"
         if counter % 2 == 0: # Every two layers apply a dropout
             outputs = layers.Dropout(0.2)(outputs)
         else:
             counter += 1
-        outputs = layers.BatchNormalization()(outputs) #Apply a batch norm to improve performance by preventing feature bias and overfitting
+        """
+        outputs = layers.BatchNormalization()(outputs) # Apply a batch norm to improve performance by preventing feature bias and overfitting
 
     outputs = layers.TimeDistributed(layers.Dense( 
         track_layers[-1], activation='softmax'))(outputs) # Apply softmax to ouput the results of the track neural network as probabilities
@@ -273,11 +298,13 @@ def DeepSetNeuralNetwork(track_layers, jet_layers, n_targets,optimizer, MASKVAL=
 
     counter = 0
     for nodes in jet_layers: #Repeat of the track neural network without the need for the timedistributed layers
-        outputs = layers.Dense(nodes, activation='elu', kernel_initializer= "he_normal", kernel_regularizer = regularizers.L2(0.01))(outputs)
+        outputs = layers.Dense(nodes, activation='elu', kernel_initializer= "he_normal")(outputs)
+        """"
         if counter % 2 == 0:
             outputs = layers.Dropout(0.2)(outputs)
         else:
             counter += 1
+        """
         outputs = layers.BatchNormalization()(outputs)
 
     outputs = layers.Dense(n_targets+n_targets*(n_targets+1)//2)(outputs) # The output will have a number of neurons needed to form the mean covariance function of the loss func
@@ -287,8 +314,9 @@ def DeepSetNeuralNetwork(track_layers, jet_layers, n_targets,optimizer, MASKVAL=
     # Specify the neural network's optimizer and loss function
     Model.compile(
     optimizer=optimizer, # Optimizer used to train model
-    metrics = [Normal_Accuracy_Metric], # Metric used to assess true performance of model
-    loss=LogNormal_Loss_Function, #Loss function
+    #metrics = [Normal_Accuracy_Metric,Root_Mean_Square_Metric], # Metric used to assess true performance of model
+    loss= LogNormal_Loss_Function, #Loss function
+    #run_eagerly = True #Allows Numpy to run
     )
 
     return Model

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[ ]:
+# In[1]:
 
 
 import os
@@ -9,23 +9,25 @@ import numpy as np
 from keras import callbacks
 import keras
 import DeepSetNeuralNetArchitecture as DSNNA
+import ConvolutionalRecurrentNeuralNetworkArchitecture as CRNNA
 import uproot
 import awkward as ak
 import sklearn as sk
 from numpy.lib.recfunctions import structured_to_unstructured
 from sklearn.model_selection import train_test_split
+from sklearn.decomposition import PCA
 import tensorflow as tf
 import tensorflow_addons as tfa
+from sklearn.preprocessing import StandardScaler
 import pandas as pd
 from hffrag import fixedbinning
 from hffrag import binneddensity
 from keras.utils.vis_utils import plot_model
 from timeit import default_timer as timer
 import matplotlib.pyplot as plt
-get_ipython().run_line_magic('matplotlib', 'inline')
 
 
-# In[ ]:
+# In[2]:
 
 
 # The data is being stored in a tree datastructure.
@@ -33,7 +35,7 @@ get_ipython().run_line_magic('matplotlib', 'inline')
 tree = uproot.open("hffrag.root:CharmAnalysis")
 
 
-# In[ ]:
+# In[3]:
 
 
 # Initial parameters
@@ -45,7 +47,7 @@ MAXEVENTS = 1e20 #This is the maximum number of events that will the program wil
 LR = 1e-4 #This is the default learning rate
 
 
-# In[ ]:
+# In[4]:
 
 
 # Select the features we wish to study
@@ -55,14 +57,14 @@ jet_features = ["AnalysisAntiKt4TruthJets_pt", "AnalysisAntiKt4TruthJets_eta", "
                 "AnalysisAntiKt4TruthJets_ghostB_pt", "AnalysisAntiKt4TruthJets_ghostB_eta","AnalysisAntiKt4TruthJets_ghostB_phi"]
 
 
-# In[ ]:
+# In[5]:
 
 
-# Read in the data from the root file
+# Read in the dat from the root file
 features = tree.arrays(jet_features+track_features, entry_stop=MAXEVENTS)
 
 
-# In[ ]:
+# In[6]:
 
 
 # Select the events of interest
@@ -70,7 +72,7 @@ events = features[ak.sum(
     features["AnalysisAntiKt4TruthJets_pt"] > 25000, axis=1) > 0]
 
 
-# In[ ]:
+# In[7]:
 
 
 # Displays the number of jets being trained on
@@ -79,7 +81,7 @@ print("The number of jets to train on is: ", len(jets))
 print("The number of track features is: ",len(track_features))
 
 
-# In[ ]:
+# In[8]:
 
 
 # Select tracks from the events
@@ -92,7 +94,7 @@ matchedtracks = tracks[DSNNA.Match_Tracks(jets, tracks)]
 matchedtracks = DSNNA.flatten(matchedtracks, MAXTRACKS)
 
 
-# In[ ]:
+# In[9]:
 
 
 # Identify the the bottom jets and their associated tracks
@@ -111,7 +113,7 @@ matchedtracks = matchedtracks[bjets]
 print("There are {} inputs".format(np.shape(matchedtracks)[1])) # Display the number of target features the neural network will use in it's ppredictions
 
 
-# In[ ]:
+# In[10]:
 
 
 print(np.shape(bhads)) #Check the shape of the neural network
@@ -119,7 +121,7 @@ print(np.shape(jet_features[:-1])) #Check for shape of the jet features
 print(jets[jet_features[0]]) # Check the jets
 
 
-# In[ ]:
+# In[11]:
 
 
 # Transform the jet and tracks to unstructed data.
@@ -128,7 +130,7 @@ matchedtracks = structured_to_unstructured(matchedtracks)
 print(np.shape(jets))
 
 
-# In[ ]:
+# In[12]:
 
 
 #Check the matchtracks are the correct shape
@@ -136,7 +138,7 @@ print(matchedtracks[:, 0:1])
 print(np.shape(matchedtracks[:, :, 3]))
 
 
-# In[ ]:
+# In[13]:
 
 
 # Convert the coordinates of the b jets and tracks to cartesian coordinates
@@ -151,7 +153,7 @@ print(np.shape(matchedtracks[:, :, 3:]))
 tracks = np.concatenate([tracks_p,matchedtracks[:,:,3:].to_numpy()],axis = 2)
 
 
-# In[ ]:
+# In[14]:
 
 
 #Check that this is all the correct shape
@@ -161,12 +163,29 @@ print(tracks[0,0])
 print(bhads[0])
 
 
-# In[ ]:
+# In[15]:
+
+
+Scaler = StandardScaler()
+Num_events,Num_tracks,Num_features = np.shape(tracks)
+tracks = np.reshape(tracks, newshape=(-1,Num_features))
+tracks = Scaler.fit_transform(tracks)
+tracks = np.reshape(tracks, newshape= (Num_events,Num_tracks,Num_features))
+print(np.shape(tracks))
+print(tracks[0,0,:])
+
+
+# In[16]:
 
 
 # Split the data into training and validation sets.
 X_train, X_valid, y_train, y_valid = train_test_split(
-    tracks, bhads, train_size=0.7, random_state=42)
+    tracks, bhads, train_size=0.8, random_state=42)
+
+
+# In[17]:
+
+
 #Save the training and validation datasets.
 np.save("/home/physics/phujdj/DeepLearningParticlePhysics/TrainingAndValidationData/X_train_data.npy",X_train)
 np.save("/home/physics/phujdj/DeepLearningParticlePhysics/TrainingAndValidationData/X_valid_data.npy",X_valid)
@@ -174,46 +193,67 @@ np.save("/home/physics/phujdj/DeepLearningParticlePhysics/TrainingAndValidationD
 np.save("/home/physics/phujdj/DeepLearningParticlePhysics/TrainingAndValidationData/y_valid_data.npy",y_valid)
 
 
-# In[ ]:
+# In[18]:
 
 
 #Cyclical Learning Rate Scheduler:
 steps_per_epoch = len(X_train)
 clr = tfa.optimizers.CyclicalLearningRate(initial_learning_rate = 1e-4,
-maximal_learning_rate = 1e-3,
-scale_fn = lambda x: 0.90 ** x,
+maximal_learning_rate = 0.01,
+scale_fn = lambda x: 1/(2**(x-1)),
 step_size = 2.0 * steps_per_epoch
 )
-optimizer = tf.keras.optimizers.Adam(LR)
 
 # Builds the deep neural network
-track_layers = [32,32,32,32,32]
-jet_layers = [64,64,64,64,64]
+track_layers = [100,100,100,100]
+jet_layers = [100,100,100,100]
+
+len1 = [len(track_features)]+track_layers
+print(len1)
+
+#Initializers the optimizer used for training the network
+optimizer = tf.keras.optimizers.Nadam(clr)
+optimizer_Constant = tf.keras.optimizers.SGD(learning_rate = 1e-4, momentum = 0.9, clipnorm = 1.0, nesterov = True )
+
+#Builds the DeepSet Neural Network
 DeepNet = DSNNA.DeepSetNeuralNetwork(
-    [len(track_features)]+track_layers, jet_layers,3,optimizer)
+    [len(track_features)] + track_layers, jet_layers,np.shape(y_train)[1],optimizer)
+
+#Builds the Convolutional Recurrent Neural Network
+track_layers = [100,100,100,100]
+len2 = [len(track_features)]+track_layers
+print(len2)
+ConvRec = CRNNA.ConvolutionRecurrentNeuralNetwork([len(track_features)]+track_layers,np.shape(y_train)[1],optimizer)
 
 
-# In[ ]:
+# In[19]:
 
 
-#Summarises the Neural Network Architecture
+#Summarises the Deep Set Neural Network Architecture
 DeepNet.summary()
 
 
-# In[ ]:
+# In[20]:
 
 
-plot_model(DeepNet, to_file ="NetworkArchitecture.png", show_shapes = True, show_layer_names = True)
+#Summarises the Convolutional Recurrent Neural Network Architecture
+ConvRec.summary()
 
 
-# In[ ]:
+# In[21]:
+
+
+plot_model(ConvRec, to_file ="NetworkArchitecture.png", show_shapes = True, show_layer_names = True)
+
+
+# In[22]:
 
 
 #Check for the of the training and validation sets
 print(np.shape(X_train), np.shape(y_train))
 
 
-# In[ ]:
+# In[23]:
 
 
 class TimingCallback(keras.callbacks.Callback):
@@ -225,7 +265,7 @@ class TimingCallback(keras.callbacks.Callback):
         self.logs.append(timer() - self.starttime)
 
 
-# In[ ]:
+# In[24]:
 
 
 # Introduce early_stopping to prevent overfitting
@@ -236,13 +276,13 @@ early_stopping = callbacks.EarlyStopping(
 )
 # Prevent spikes in the validation and training loss due to the gradient descent kicking the network out of a local minima
 reduce_learn_on_plateau = callbacks.ReduceLROnPlateau(
-    monitor='val_loss', factor=0.5, patience=10, min_lr=1e-7)
+    monitor='val_loss', factor=0.80, patience=10, min_lr=0)
 
 # Save the weights of the model to allow reuse in future.
-path = "/home/physics/phujdj/DeepLearningParticlePhysics/CheckPoints/DeepNetWeights&Biases.ckpt"
+path = "/home/physics/phujdj/DeepLearningParticlePhysics/CheckPoints_2/DeepNetWeights&Biases.ckpt"
 checkpoint_dir = os.path.dirname(path)
 cp_callback = tf.keras.callbacks.ModelCheckpoint(filepath=path,
-                                                 save_weights_only=True, verbose=0, save_freq = 100 )
+                                                 save_weights_only=True, verbose=0, save_freq = 100*BATCHSIZE)
 #Timer
 cb = TimingCallback()
 
@@ -251,10 +291,10 @@ exponential_decay_fn = DSNNA.expontial_decay(lr0 = LR,s = 30)
 learning_scheduler = tf.keras.callbacks.LearningRateScheduler(exponential_decay_fn)
 
 
-# In[ ]:
+# In[25]:
 
 
-steps = np.arange(0,EPOCHS * steps_per_epoch)
+steps = np.arange(0,100 * steps_per_epoch)
 lr = clr(steps)
 plt.plot(steps,lr)
 plt.xlabel("Steps")
@@ -262,42 +302,51 @@ plt.ylabel("Learning Rate")
 plt.show()
 
 
-# In[ ]:
+# In[26]:
+
+
+X_train_event, y_train_event = np.array([X_train[0]]), np.array([y_train[0]])
+X_valid_event, y_valid_event = np.array([X_valid[0]]), np.array([y_valid[0]])
+print(np.shape(X_train),np.shape(y_train))
+print(np.shape(X_train_event),np.shape(y_train_event))
+
+
+# In[27]:
 
 
 # Train the neural network
 history = DeepNet.fit(
     X_train, y_train,
-    validation_data=(X_valid, y_valid),
+    validation_data = (X_valid, y_valid),
     batch_size=BATCHSIZE,
     epochs=EPOCHS,
-    callbacks=[cp_callback,cb,reduce_learn_on_plateau]  # Enter call back
+    callbacks = [reduce_learn_on_plateau,cb,cp_callback]
 )
 
 
-# In[ ]:
+# In[28]:
 
 
 # Plot the loss and validation curves vs epoch
 history_df = pd.DataFrame(history.history)
-np.log(history_df.loc[:, ["loss", "val_loss"]]).plot()
-history.to_csv('/home/physics/DeepLearningParticlePhysics/history.csv')
+np.log(history_df.loc[:, ["loss","val_loss"]]).plot()
+history_df.to_csv('/home/physics/phujdj/DeepLearningParticlePhysics/history.csv')
 
 
-# In[ ]:
+# In[29]:
 
 
 print(sum(cb.logs))
 
 
-# In[ ]:
+# In[30]:
 
 
 # Output to the console the minimum epoch
-print("Minimum validation loss: {}".format(history_df["val_loss"].min()))
+print("Minimum validation loss: {}".format(history_df["loss"].min()))
 
 
-# In[ ]:
+# In[31]:
 
 
 #Evaluate the entire performance of the model
