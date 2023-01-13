@@ -192,7 +192,7 @@ def LogNormal_Loss_Function(true,mean_convariance_matrix):
     #Calculate the logNormal loss
     sum_loss = 0
     for target in range(n_targets):
-        sum_loss += (1/2)*keras.backend.log(2*np.pi) + keras.backend.log(tf.experimental.numpy.maximum(variances[:,target],epilson)) + ((true[:,target] - means[:,target])**2)/(2*(variances[:,target])**2)
+        sum_loss += (1/2)*keras.backend.log(2*np.pi) + keras.backend.log(tf.experimental.numpy.maximum(variances[:,target],epilson))
     
     return sum_loss
 
