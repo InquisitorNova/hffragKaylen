@@ -256,6 +256,14 @@ def LogNormal_Loss_Function_Check(true,meanscovs_matrix):
         loss.append(((means[n_target] - true[n_target])**2) / (2 * keras.backend.exp(logsigma[n_target])**2) + logsigma[n_target])
     return loss
 
+def Mean_Squared_Error(true, meancovs_matrix):
+    n_targets = np.shape(true)[0]
+    means = meancovs_matrix[0, :n_targets]
+    
+    loss = 0
+    for n_target in range(n_targets):
+        loss += ((means[n_target]-true[n_target])**2)
+    return loss
 
 # In[14]:
 
@@ -321,7 +329,7 @@ def DeepSetNeuralNetwork(track_layers, jet_layers, n_targets,Learning_rate, MASK
     Model.compile(
     optimizer=keras.optimizers.Nadam(learning_rate=Learning_rate,clipnorm = 1.0), # Optimizer used to train model
     metrics = [Normal_Accuracy_Metric], # Metric used to assess true performance of model
-    loss=LogNormal_Loss_Function, #Loss function
+    loss=Mean_Squared_Error, #Loss function
     )
 
     return Model

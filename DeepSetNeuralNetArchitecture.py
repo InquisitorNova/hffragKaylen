@@ -12,6 +12,9 @@ import keras.layers as layers
 from keras import regularizers
 import keras
 from Sum import Sum
+import matplotlib.pyplot as plt
+from hffrag import fixedbinning
+from hffrag import binneddensity
 
 
 # In[103]:
@@ -24,7 +27,8 @@ BATCHSIZE = 64 # This is the batch size of the mini batches used during training
 EPOCHS = 1000 # This is the default number of epochs for which the neural network will train providing that early stopping does not occur
 MAXEVENTS = 1e20 #This is the maximum number of events that will the program will accept
 LR = 1e-4 #This is the default learning rate
-
+Predicted_Bhad_px_means = np.array([])
+Predicted_Bhad_px_uncertainties = np.array([])
 
 # In[104]:
 
@@ -170,7 +174,7 @@ def LogNormal_Loss_Function(true,mean_convariance_matrix):
     
     """A custom loss function designed to force the neural network 
     to return a prediction and associated uncertainty for target features"""
-
+    
     #Identify the number of target features
     n_targets = np.shape(true)[1]
 
@@ -178,16 +182,27 @@ def LogNormal_Loss_Function(true,mean_convariance_matrix):
     means = mean_convariance_matrix[:, :n_targets]
 
     #Allocate the second n outputs of the dense layer to represent the variances
-    logvariances = mean_convariance_matrix[:, n_targets: 2* n_targets]
+    variances = mean_convariance_matrix[:, n_targets: 2* n_targets]
 
     #Allocate the last n outputs of th4e dense layer to represent the covariances
-    logcovariances = mean_convariance_matrix[:, 2*n_targets:]
+    covariances = mean_convariance_matrix[:, 2*n_targets:]
 
+    epilson = tf.constant(keras.backend.epsilon(), shape = (np.shape(true)[0],))
 
     #Calculate the logNormal loss
     sum_loss = 0
     for target in range(n_targets):
-        sum_loss += (1/2)*keras.backend.log(2*np.pi) + logvariances[:,target] + ((true[:,target] - means[:,target])**2)/(2*keras.backend.exp(logvariances[:,target])**2)
+        sum_loss += (1/2)*keras.backend.log(2*np.pi) + keras.backend.log(tf.experimental.numpy.maximum(variances[:,target],epilson)) + ((true[:,target] - means[:,target])**2)/(2*(variances[:,target])**2)
+    
+    return sum_loss
+
+def Mean_Squared_Error(true, meancovs_matrix):
+    n_targets = np.shape(true)[1]
+    means = meancovs_matrix[:, :n_targets]
+    
+    sum_loss = 0
+    for target in range(n_targets):
+        sum_loss += ((true[:,target]-means[:,target])**2)
     
     return sum_loss
 
@@ -213,6 +228,26 @@ def Root_Mean_Square_Metric(true, mean_convariance_matrix):
 
 # In[111]:
 
+class PredictOnEpoch(tf.keras.callbacks.Callback):
+    def __init__(self, model, x_test, y_test):
+        self.model = model
+        self.x_test = x_test
+        self.y_test = y_test
+    
+    def on_epoch_end(self, epoch, logs = {}):
+        pred = self.model.predict(self.x_test)
+        px_pred = pred[0]
+        px_uncertainity = pred[3]
+        Figure = binneddensity(px_pred, fixedbinning(0, 70000,50),label = "Predicted x momentum [MeV] values")
+        Figure.patch.set_facecolor('white')
+        Figure.suptitle(f"Epoch {epoch}", fontsize = 20)
+        Figure.savefig("/home/physics/phujdj/DeepLearningParticlePhysics/EpochPlots/PxPredictionOnEpoch-{Epoch}.png".format(Epoch = epoch),facecolor=Figure.get_facecolor())
+
+        global Predicted_Bhad_px_means
+        global Predicted_Bhad_px_uncertainties
+
+        Predicted_Bhad_px_means = np.append(Predicted_Bhad_px_means,[epoch,np.mean(px_pred)])
+        Predicted_Bhad_px_uncertainties = np.append(Predicted_Bhad_px_uncertainties, [epoch,np.mean(px_uncertainity)])
 
 def Normal_Accuracy_Metric(true,meanscovs_matrix):
     """
@@ -246,6 +281,7 @@ def LogNormal_Loss_Function_Check(true,meanscovs_matrix):
     # ensure diagonal is postive:
     logsigma = meanscovs_matrix[0, n_targets:2*n_targets]
 
+    epilson = tf.constant(keras.backend.epsilon(), shape = (true.shape[0],))
     loss = []
     for n_target in range(n_targets):
         loss.append(((means[n_target] - true[n_target])**2) / (2 * keras.backend.exp(logsigma[n_target])**2) + logsigma[n_target])
@@ -315,7 +351,8 @@ def DeepSetNeuralNetwork(track_layers, jet_layers, n_targets,optimizer, MASKVAL=
     Model.compile(
     optimizer=optimizer, # Optimizer used to train model
     #metrics = [Normal_Accuracy_Metric,Root_Mean_Square_Metric], # Metric used to assess true performance of model
-    loss= LogNormal_Loss_Function, #Loss function
+    loss= Mean_Squared_Error,#Loss function
+    jit_compile = True
     #run_eagerly = True #Allows Numpy to run
     )
 
