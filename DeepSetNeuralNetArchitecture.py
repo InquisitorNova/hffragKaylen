@@ -170,13 +170,15 @@ def flatten(x_values, maxsize=-1, MASKVAL=-999):
 
 # In[110]:
 
-def LogNormal_Loss_Function(true,mean_convariance_matrix):
+def LogNormal_Loss_Function_Adjusted(true,mean_convariance_matrix):
     
     """A custom loss function designed to force the neural network 
     to return a prediction and associated uncertainty for target features"""
     
     #Identify the number of target features
     n_targets = np.shape(true)[1]
+
+    alpha = 0.01
 
     #Allocate the first n outputs of the dense layer to represent the mean
     means = mean_convariance_matrix[:, :n_targets]
@@ -192,7 +194,31 @@ def LogNormal_Loss_Function(true,mean_convariance_matrix):
     #Calculate the logNormal loss
     sum_loss = 0
     for target in range(n_targets):
-        sum_loss += (1/2)*keras.backend.log(2*np.pi) + keras.backend.log(tf.experimental.numpy.maximum(variances[:,target],epilson))
+        sum_loss += (1/2)*keras.backend.log(2*np.pi) + keras.backend.log(tf.experimental.numpy.maximum(variances[:,target],epilson)) + ((true[:,target]-means[:,target])**2)/(2*(variances[:,target])**2) + alpha*(keras.backend.log(true[:,target]+epilson) - np.log(means[:,target]+epilson))**2
+    
+    return sum_loss
+
+def LogNormal_Loss_Function(true,mean_convariance_matrix):
+    
+    """A custom loss function designed to force the neural network 
+    to return a prediction and associated uncertainty for target features"""
+
+    #Identify the number of target features
+    n_targets = np.shape(true)[1]
+
+    #Allocate the first n outputs of the dense layer to represent the mean
+    means = mean_convariance_matrix[:, :n_targets]
+
+    #Allocate the second n outputs of the dense layer to represent the variances
+    logvariances = mean_convariance_matrix[:, n_targets: 2* n_targets]
+
+    #Allocate the last n outputs of th4e dense layer to represent the covariances
+    logcovariances = mean_convariance_matrix[:, 2*n_targets:]
+
+    #Calculate the logNormal loss
+    sum_loss = 0
+    for target in range(n_targets):
+        sum_loss += (1/2)*keras.backend.log(2*np.pi) + logvariances[:,target] + ((true[:,target] - means[:,target])**2)/(2*keras.backend.exp(logvariances[:,target])**2)
     
     return sum_loss
 
@@ -238,7 +264,7 @@ class PredictOnEpoch(tf.keras.callbacks.Callback):
         pred = self.model.predict(self.x_test)
         px_pred = pred[0]
         px_uncertainity = pred[3]
-        Figure = binneddensity(px_pred, fixedbinning(0, 70000,50),label = "Predicted x momentum [MeV] values")
+        Figure = binneddensity(px_pred, fixedbinning(-300, 300,100),label = "Predicted x momentum [MeV] values")
         Figure.patch.set_facecolor('white')
         Figure.suptitle(f"Epoch {epoch}", fontsize = 20)
         Figure.savefig("/home/physics/phujdj/DeepLearningParticlePhysics/EpochPlots/PxPredictionOnEpoch-{Epoch}.png".format(Epoch = epoch),facecolor=Figure.get_facecolor())
@@ -315,33 +341,34 @@ def DeepSetNeuralNetwork(track_layers, jet_layers, n_targets,optimizer, MASKVAL=
     outputs = inputs  # Creates another layer to pass the inputs onto the ouputs
     outputs = layers.Masking(mask_value=MASKVAL)(outputs) # Masks the MASKVAl values
 
-    #counter = 0
+    counter = 0
     for nodes in track_layers[:-1]:
         #The first neural network is a series of dense layers and is applied to each track using the time distributed layer
         outputs = layers.TimeDistributed( 
-            layers.Dense(nodes, activation="elu", kernel_initializer= "he_normal"))(outputs) # We use relu and the corresponding he_normal for the activation function and bias initializer
-        """"
+            layers.Dense(nodes, activation="gelu", kernel_initializer= "he_normal"))(outputs) # We use relu and the corresponding he_normal for the activation function and bias initializer
         if counter % 2 == 0: # Every two layers apply a dropout
             outputs = layers.Dropout(0.2)(outputs)
         else:
             counter += 1
-        """
+    
         outputs = layers.BatchNormalization()(outputs) # Apply a batch norm to improve performance by preventing feature bias and overfitting
 
     outputs = layers.TimeDistributed(layers.Dense( 
         track_layers[-1], activation='softmax'))(outputs) # Apply softmax to ouput the results of the track neural network as probabilities
     outputs = Sum()(outputs) # Sum the outputs to make use of permutation invariance
 
+    
     counter = 0
     for nodes in jet_layers: #Repeat of the track neural network without the need for the timedistributed layers
-        outputs = layers.Dense(nodes, activation='elu', kernel_initializer= "he_normal")(outputs)
-        """"
+        outputs = layers.Dense(nodes, activation='gelu', kernel_initializer= "he_normal")(outputs)
+        
         if counter % 2 == 0:
             outputs = layers.Dropout(0.2)(outputs)
         else:
             counter += 1
-        """
+        
         outputs = layers.BatchNormalization()(outputs)
+    
 
     outputs = layers.Dense(n_targets+n_targets*(n_targets+1)//2)(outputs) # The output will have a number of neurons needed to form the mean covariance function of the loss func
 
