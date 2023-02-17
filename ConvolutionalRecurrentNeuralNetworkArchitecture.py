@@ -1,10 +1,15 @@
 """
+*Filename: BhadronClassifier
+*Description: This file lays out the loss and convolutional 
+recurrent neural network architecture for the regression of b jets.
+Date: 16/02/2023
+Author: Kaylen Smith Darnbrook
 The module file which lays out the loss and convolutional 
 recurrent neural network architecture for the regression of b jets.
 """
+
 #Set up the coding standard and point the interpreter to the correct
 #Virtual environment
-
 #!/usr/bin/env python3
 # coding: utf-8
 

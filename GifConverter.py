@@ -1,3 +1,12 @@
+"""
+*Filename: GifConverter
+*Description: This python files converts the images of the 
+*true vs predicted scatterplot per epoch and converts them into a gif that 
+*shows how the model predictions improve with time.
+Date: 16/02/2023
+Author: Kaylen Smith Darnbrook
+"""
+
 #Import Relevant modules
 from PIL import Image
 import os, sys

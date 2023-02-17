@@ -10,11 +10,14 @@ import numpy as np
 import tensorflow as tf
 import keras.layers as layers
 from keras import regularizers
+import keras.backend as K
 import keras
 from Sum import Sum
 import matplotlib.pyplot as plt
-from hffrag import fixedbinning
-from hffrag import binneddensity
+import matplotlib as mpl
+
+#Update the maximum chunksize
+mpl.rcParams['agg.path.chunksize'] = 10000
 
 
 # In[103]:
@@ -24,10 +27,12 @@ from hffrag import binneddensity
 MASKVAL = -999 # This value is introduced to ensure arrays are regular (Of the same size). They will be masked later by the network
 MAXTRACKS = 32 # This value is the maximum number of tracks allowed per event
 BATCHSIZE = 64 # This is the batch size of the mini batches used during training
-EPOCHS = 1000 # This is the default number of epochs for which the neural network will train providing that early stopping does not occur
+EPOCHS = 200 # This is the default number of epochs for which the neural network will train providing that early stopping does not occur
 MAXEVENTS = 1e20 #This is the maximum number of events that will the program will accept
 LR = 1e-4 #This is the default learning rate
-Predicted_Bhad_px_means = np.array([])
+
+#Create global variables to store the predictions per epoch
+Predicted_Bhad_px = np.array([])
 Predicted_Bhad_px_uncertainties = np.array([])
 
 # In[104]:
@@ -170,34 +175,6 @@ def flatten(x_values, maxsize=-1, MASKVAL=-999):
 
 # In[110]:
 
-def LogNormal_Loss_Function_Adjusted(true,mean_convariance_matrix):
-    
-    """A custom loss function designed to force the neural network 
-    to return a prediction and associated uncertainty for target features"""
-    
-    #Identify the number of target features
-    n_targets = np.shape(true)[1]
-
-    alpha = 0.01
-
-    #Allocate the first n outputs of the dense layer to represent the mean
-    means = mean_convariance_matrix[:, :n_targets]
-
-    #Allocate the second n outputs of the dense layer to represent the variances
-    variances = mean_convariance_matrix[:, n_targets: 2* n_targets]
-
-    #Allocate the last n outputs of th4e dense layer to represent the covariances
-    covariances = mean_convariance_matrix[:, 2*n_targets:]
-
-    epilson = tf.constant(keras.backend.epsilon(), shape = (np.shape(true)[0],))
-
-    #Calculate the logNormal loss
-    sum_loss = 0
-    for target in range(n_targets):
-        sum_loss += (1/2)*keras.backend.log(2*np.pi) + keras.backend.log(tf.experimental.numpy.maximum(variances[:,target],epilson)) + ((true[:,target]-means[:,target])**2)/(2*(variances[:,target])**2) + alpha*(keras.backend.log(true[:,target]+epilson) - np.log(means[:,target]+epilson))**2
-    
-    return sum_loss
-
 def LogNormal_Loss_Function(true,mean_convariance_matrix):
     
     """A custom loss function designed to force the neural network 
@@ -216,64 +193,57 @@ def LogNormal_Loss_Function(true,mean_convariance_matrix):
     logcovariances = mean_convariance_matrix[:, 2*n_targets:]
 
     #Calculate the logNormal loss
+    
+    
     sum_loss = 0
     for target in range(n_targets):
         sum_loss += (1/2)*keras.backend.log(2*np.pi) + logvariances[:,target] + ((true[:,target] - means[:,target])**2)/(2*keras.backend.exp(logvariances[:,target])**2)
     
-    return sum_loss
+    return K.mean(sum_loss)
+   
 
 def Mean_Squared_Error(true, meancovs_matrix):
     n_targets = np.shape(true)[1]
     means = meancovs_matrix[:, :n_targets]
     
-    sum_loss = 0
-    for target in range(n_targets):
-        sum_loss += ((true[:,target]-means[:,target])**2)
-    
-    return sum_loss
-
-def Root_Mean_Square_Metric(true, mean_convariance_matrix):
-
-    """
-    A custom metric used to discern the accuracy of the model without influencing
-    how the models weights and biases are adjusted
-    """
-    #Determine the number of targets
-    n_targets = np.shape(true)[1]
-
-    #Select the predicted values of the targets
-    means = mean_convariance_matrix[:, :n_targets]
-
-    #Determine the root mean square of the values
-    diff = tf.math.subtract(true,means)
-    square = tf.square(diff)
-    mean_square_error = tf.math.reduce_sum(square)
-    #Return the accuracy
-    root_square_error = tf.math.sqrt(mean_square_error)
-    return root_square_error.numpy()
+    return K.mean(K.square(means-true), axis = -1)
 
 # In[111]:
 
 class PredictOnEpoch(tf.keras.callbacks.Callback):
-    def __init__(self, model, x_test, y_test):
+    def __init__(self, model, x_test, y_test, model_name):
         self.model = model
         self.x_test = x_test
         self.y_test = y_test
-    
+        self.model_name = model_name
+
     def on_epoch_end(self, epoch, logs = {}):
         pred = self.model.predict(self.x_test)
-        px_pred = pred[0]
-        px_uncertainity = pred[3]
-        Figure = binneddensity(px_pred, fixedbinning(-300, 300,100),label = "Predicted x momentum [MeV] values")
-        Figure.patch.set_facecolor('white')
-        Figure.suptitle(f"Epoch {epoch}", fontsize = 20)
-        Figure.savefig("/home/physics/phujdj/DeepLearningParticlePhysics/EpochPlots/PxPredictionOnEpoch-{Epoch}.png".format(Epoch = epoch),facecolor=Figure.get_facecolor())
+        px_pred = pred[:,0]
+        px_uncertainity = pred[:,3]
+        true = self.y_test[:,0]
 
-        global Predicted_Bhad_px_means
+        global Predicted_Bhad_px
         global Predicted_Bhad_px_uncertainties
+        
+        if epoch > 1:
+            Predicted_Bhad_px = np.concatenate((Predicted_Bhad_px,px_pred))
+            Predicted_Bhad_px_uncertainties = np.concatenate((Predicted_Bhad_px_uncertainties, px_uncertainity))
+        else:
+            Predicted_Bhad_px = px_pred
+            Predicted_Bhad_px_uncertainties = px_uncertainity
 
-        Predicted_Bhad_px_means = np.append(Predicted_Bhad_px_means,[epoch,np.mean(px_pred)])
-        Predicted_Bhad_px_uncertainties = np.append(Predicted_Bhad_px_uncertainties, [epoch,np.mean(px_uncertainity)])
+        lims = [-20,20]
+        fig,ax = plt.subplots(figsize = (8,4))
+        ax.scatter(true,px_pred, alpha = 0.6, color = '#32CD32', lw = 1, ec = "black")
+        ax.plot(true, true, lw = 1, color = '#FF0000')
+        ax.set_xlim(lims)
+        ax.set_ylim(lims)
+        fig.tight_layout()
+        ax.set_title(f'Prediction Visualization Keras Callback - Epoch: {epoch}')
+        fig.savefig(f'/home/physics/phujdj/DeepLearningParticlePhysics/Results/DeepNet_{self.model_name}-Epoch:{epoch}')
+        plt.close()
+
 
 def Normal_Accuracy_Metric(true,meanscovs_matrix):
     """
@@ -295,23 +265,7 @@ def Normal_Accuracy_Metric(true,meanscovs_matrix):
     Accuracy = tf.convert_to_tensor(Accuracy)
     return keras.backend.mean(Accuracy)
 
-
 # In[112]:
-
-
-def LogNormal_Loss_Function_Check(true,meanscovs_matrix):
-    """The role of this function is to calculate the loss for each individual b jet. This is used for the purpose of error checking"""
-    n_targets = np.shape(true)[0]
-    # Obtain data from convarience matrix
-    means = meanscovs_matrix[0, :n_targets]
-    # ensure diagonal is postive:
-    logsigma = meanscovs_matrix[0, n_targets:2*n_targets]
-
-    epilson = tf.constant(keras.backend.epsilon(), shape = (true.shape[0],))
-    loss = []
-    for n_target in range(n_targets):
-        loss.append(((means[n_target] - true[n_target])**2) / (2 * keras.backend.exp(logsigma[n_target])**2) + logsigma[n_target])
-    return loss
 
 
 # In[113]:
@@ -341,46 +295,30 @@ def DeepSetNeuralNetwork(track_layers, jet_layers, n_targets,optimizer, MASKVAL=
     outputs = inputs  # Creates another layer to pass the inputs onto the ouputs
     outputs = layers.Masking(mask_value=MASKVAL)(outputs) # Masks the MASKVAl values
 
-    counter = 0
+    #counter = 0
     for nodes in track_layers[:-1]:
         #The first neural network is a series of dense layers and is applied to each track using the time distributed layer
-        outputs = layers.TimeDistributed( 
-            layers.Dense(nodes, activation="gelu", kernel_initializer= "he_normal"))(outputs) # We use relu and the corresponding he_normal for the activation function and bias initializer
-        if counter % 2 == 0: # Every two layers apply a dropout
-            outputs = layers.Dropout(0.2)(outputs)
-        else:
-            counter += 1
-    
+        outputs = layers.TimeDistributed(layers.Dense(nodes,activation = "gelu",kernel_initializer= "he_normal", kernel_regularizer = regularizers.l1_l2(1e-4)))(outputs)
         outputs = layers.BatchNormalization()(outputs) # Apply a batch norm to improve performance by preventing feature bias and overfitting
 
-    outputs = layers.TimeDistributed(layers.Dense( 
-        track_layers[-1], activation='softmax'))(outputs) # Apply softmax to ouput the results of the track neural network as probabilities
+    outputs = layers.TimeDistributed(layers.Dense(track_layers[-1], activation = "softmax", kernel_initializer = "he_normal" ))(outputs) # Apply softmax to ouput the results of the track neural network as probabilities
     outputs = Sum()(outputs) # Sum the outputs to make use of permutation invariance
 
     
-    counter = 0
+    #counter = 0
     for nodes in jet_layers: #Repeat of the track neural network without the need for the timedistributed layers
-        outputs = layers.Dense(nodes, activation='gelu', kernel_initializer= "he_normal")(outputs)
-        
-        if counter % 2 == 0:
-            outputs = layers.Dropout(0.2)(outputs)
-        else:
-            counter += 1
-        
+        outputs = layers.Dense(nodes,activation = "gelu", kernel_initializer= "he_normal", kernel_regularizer = regularizers.l1_l2(1e-4))(outputs)
         outputs = layers.BatchNormalization()(outputs)
     
 
-    outputs = layers.Dense(n_targets+n_targets*(n_targets+1)//2)(outputs) # The output will have a number of neurons needed to form the mean covariance function of the loss func
+    outputs = layers.Dense(n_targets + n_targets*(n_targets-1)//2)(outputs) # The output will have a number of neurons needed to form the mean covariance function of the loss function
 
     Model = keras.Model(inputs=inputs, outputs=outputs) #Create a keras model
 
     # Specify the neural network's optimizer and loss function
     Model.compile(
     optimizer=optimizer, # Optimizer used to train model
-    #metrics = [Normal_Accuracy_Metric,Root_Mean_Square_Metric], # Metric used to assess true performance of model
-    loss= Mean_Squared_Error,#Loss function
-    jit_compile = True
-    #run_eagerly = True #Allows Numpy to run
+    loss= tf.keras.losses.MSE
     )
 
     return Model

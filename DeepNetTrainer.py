@@ -54,10 +54,10 @@ plt.rc('font',family = 'Times New Roman')
 # In[4]:
 
 
+
 # The data is being stored in a tree datastructure.
 # We access the charm root using this command
-tree = uproot.open("hffrag.root:CharmAnalysis")
-
+tree = uproot.open("/storage/epp2/phswmv/data/hffrag/hffrag.root:CharmAnalysis")
 
 # In[5]:
 
@@ -65,10 +65,10 @@ tree = uproot.open("hffrag.root:CharmAnalysis")
 # Initial parameters
 MASKVAL = -999 # This value is introduced to ensure arrays are regular (Of the same size). They will be masked later by the network
 MAXTRACKS = 32 # This value is the maximum number of tracks allowed per event
-BATCHSIZE = 128 # This is the batch size of the mini batches used during training
-EPOCHS = 512 # This is the default number of epochs for which the neural network will train providing that early stopping does not occur
-MAXEVENTS = 1e20 #This is the maximum number of events that will the program will accept
-LR = 1e-3 #This is the default learning rate
+BATCHSIZE = 32 # This is the batch size of the mini batches used during training
+EPOCHS = 1000 # This is the default number of epochs for which the neural network will train providing that early stopping does not occur
+MAXEVENTS = 5e5 #This is the maximum number of events that will the program will accept
+LR = 1e-6 #This is the default learning rate
 
 
 # In[6]:
@@ -250,8 +250,8 @@ class TimingCallback(keras.callbacks.Callback):
         self.logs.append(timer() - self.starttime)
         
 # Builds the deep neural network
-track_layers = [64,64,64,64,64]
-jet_layers = [128,128.128,128,128,128,128]
+track_layers = [1000,1000,1000,1000,1000]
+jet_layers = [1000,1000,1000,1000,1000]
 
 len1 = [len(track_features)]+track_layers
 print(len1)
@@ -316,7 +316,7 @@ history = DeepNet.fit(
     validation_data=(X_valid,y_valid),
     batch_size=BATCHSIZE,
     epochs=EPOCHS,
-    callbacks = [early_stopping,reduce_learn_on_plateau,PredictOnEpoch(DeepNet,X_train,y_train),cb,cp_callback],
+    callbacks = [early_stopping,reduce_learn_on_plateau,cb,cp_callback],
 )
 
 
@@ -353,112 +353,113 @@ print("The Loaded DeepNet has loss: ", loss)
 # In[ ]:
 
 
-PredictionsNeural = DeepNet.predict(tracks)
-print(PredictionsNeural.shape)
+Predictions = DeepNet.predict(tracks)
+print(Predictions.shape)
+
+Error_px = bhads[:,0] - Predictions[:,0]
+Pull_bhads_px = Error_px/np.std(bhads[:,0])
+
+Error_py = bhads[:,1] - Predictions[:,1]
+Pull_bhads_py = Error_px/np.std(bhads[:,1])
+
+Error_pz = bhads[:,2] - Predictions[:,2]
+Pull_bhads_pz = Error_px/np.std(bhads[:,2])
+
+print("Error_px")
+print(np.mean(Error_px))
+print(np.std(Error_px))
+fig = binneddensity(Error_px, fixedbinning(-60000,60000,100),xlabel = "Error_px")
+fig.savefig('/home/physics/phujdj/DeepLearningParticlePhysics/Results/Error_Px_DeepNetUltra.png')
+plt.close()
+print("\n")
+
+print("Error_py")
+print(np.mean(Error_py))
+print(np.std(Error_py))
+fig = binneddensity(Error_py, fixedbinning(-60000,60000,100),xlabel = "Error_py")
+fig.savefig('/home/physics/phujdj/DeepLearningParticlePhysics/Results/Error_Py_DeepNetUltra.png')
+plt.close()
+print("\n")
+
+print("Error_pz")
+print(np.mean(Error_pz))
+print(np.std(Error_pz))
+fig = binneddensity(Error_pz, fixedbinning(-60000,60000,100),xlabel = "Error_pz")
+fig.savefig('/home/physics/phujdj/DeepLearningParticlePhysics/Results/Error_Pz_DeepNetUltra.png')
+plt.close()
+print("\n")
+
+print("Pulls_bhads_px")
+print(np.mean(Pull_bhads_px))
+print(np.std(Pull_bhads_px))
+fig = binneddensity(Pull_bhads_px, fixedbinning(-1,1,100),xlabel = "Pull_px")
+fig.savefig('/home/physics/phujdj/DeepLearningParticlePhysics/Results/Pull_Bhads_PxDeepNetUltra.png')
+plt.close()
+print("\n")
+
+print("Pulls_bhads_py")
+print(np.mean(Pull_bhads_py))
+print(np.std(Pull_bhads_py))
+fig = binneddensity(Pull_bhads_py, fixedbinning(-1,1,100),xlabel = "Pull_py")
+fig.savefig('/home/physics/phujdj/DeepLearningParticlePhysics/Results/Pull_Bhads_PyDeepNetUltra.png')
+plt.close()
+print("\n")
+
+
+print("Pulls_bhads_py")
+print(np.mean(Pull_bhads_pz))
+print(np.std(Pull_bhads_pz))
+fig = binneddensity(Pull_bhads_pz, fixedbinning(-1,1,100),xlabel = "Pull_pz")
+fig.savefig('/home/physics/phujdj/DeepLearningParticlePhysics/Results/Pull_Bhads_PzDeepNetUltra.png')
+plt.close()
+print("\n")
+
+fig,ax = plt.subplots(figsize = (12,12))
+sns.scatterplot(
+    y = Predictions[:,0],
+    x = bhads[:,0],
+    color = "blue"
+)
+ax.set_xlim([-400000,400000])
+ax.set_ylim([-400000,400000])
+ax.set_title("Scatterplot of the true vs pred X momenta")
+ax.set_xlabel("The true X momenta of the tracks from each event")
+ax.set_ylabel("The predicted X momenta of b hadron jets")
+fig.savefig('/home/physics/phujdj/DeepLearningParticlePhysics/Results/ScatterplotPxDeepNetUltra.png')
+plt.close()
+
+fig,ax = plt.subplots(figsize = (12,12))
+sns.scatterplot(
+    y = Predictions[:,1],
+    x = bhads[:,1],
+    color = "green"
+)
+ax.set_xlim([-400000,400000])
+ax.set_ylim([-400000,400000])
+ax.set_title("Scatterplot of the true vs pred Y momenta")
+ax.set_xlabel("The true Y momenta of the tracks from each event")
+ax.set_ylabel("The predicted Y momenta of b hadron jets")
+fig.savefig('/home/physics/phujdj/DeepLearningParticlePhysics/Results/ScatterplotPyDeepNetUltra.png')
+plt.close()
+
+fig,ax = plt.subplots(figsize = (12,12))
+sns.scatterplot(
+    y = Predictions[:,2],
+    x = bhads[:,2],
+    color = "red"
+)
+ax.set_xlim([-400000,400000])
+ax.set_ylim([-400000,400000])
+ax.set_title("Scatterplot of the true vs pred Z momenta")
+ax.set_xlabel("The true Z momenta of the tracks from each event")
+ax.set_ylabel("The predicted Z momenta of b hadron jets")
+fig.savefig('/home/physics/phujdj/DeepLearningParticlePhysics/Results/ScatterplotPZDeepNetUltra.png')
+plt.close()
+
 
 
 # In[30]:
 
 
-get_sum_layer_output = k.function([DeepNet.layers[0].input],
-                                 [DeepNet.layers[13].output])
-layer_output = get_sum_layer_output(tracks)[0]
-print(layer_output.shape)
-
-
-# In[31]:
-
-
-mi_scores_px_momentum =  make_mi_scores(layer_output, bhads[:,1])
-print(mi_scores_px_momentum)
-
-
-# In[32]:
-
-
-plt.Figure(dpi = 200,figsize = (100,100))
-plot_mi_scores(mi_scores_px_momentum)
-
 
 # In[33]:
-
-
-X_train_ml,X_valid_ml,y_train_ml,y_valid_ml = train_test_split(layer_output,bhads[:,0],random_state = 42)
-
-
-# In[34]:
-
-
-from xgboost import XGBRegressor
-xgbooster = XGBRegressor(n_estimators = 6000, num_parallel_tree = 1,early_stopping_rounds= 5, learning_rate = 1e-3)
-xgbooster.fit(X_train_ml,y_train_ml, eval_set = [(X_valid_ml,y_valid_ml)], verbose = False)
-
-
-# In[ ]:
-
-
-from sklearn.metrics import mean_absolute_error
-predictions = xgbooster.predict(X_valid_ml)
-print("Mean Absolute Error: " + str(mean_absolute_error(predictions,y_valid_ml)))
-
-
-# In[ ]:
-
-
-Predictions = xgbooster.predict(X_train_ml)
-mean = np.mean(Predictions)
-std = np.std(Predictions)
-Pull_xgbooster = (Predictions - y_train_ml)/std
-mean2 = np.mean(Pull_xgbooster)
-std2 = np.std(Pull_xgbooster)
-print(mean,std)
-print(mean2,std2)
-
-
-# In[ ]:
-
-
-fig = binneddensity(Predictions - y_train_ml, fixedbinning(-100000,100000,100), xlabel ="XgBooster Error")
-fig.savefig("/home/physics/phujdj/DeepLearningParticlePhysics/XgboostError")
-
-
-# In[ ]:
-
-
-fig2 = binneddensity(Pull_xgbooster, fixedbinning(-1,1,100), xlabel ="Xgbooster Pull")
-fig2.savefig("/home/physics/phujdj/DeepLearningParticlePhysics/XgboostError")
-
-
-# In[ ]:
-
-
-fig,ax = plt.subplots(figsize = (12,12))
-sns.scatterplot(
-    x = y_train_ml,
-    y = Predictions,
-    color = "purple"
-)
-ax.set_title("Scatterplot of the true vs pred X momenta")
-ax.set_xlim([np.min(y_train_ml),np.max(y_train_ml)])
-ax.set_ylim([np.min(Predictions),np.max(Predictions)])
-ax.set_xlabel("The true X momenta of the tracks from each event")
-ax.set_ylabel("The predicted X momenta of b hadron jets")
-fig.savefig("/home/physics/phujdj/DeepLearningParticlePhysics/ScatterplotXgboost")
-
-
-# In[ ]:
-
-
-fig,ax = plt.subplots(figsize = (12,12))
-sns.scatterplot(
-    y = PredictionsNeural[:,0],
-    x = bhads[:,0],
-    color = "green"
-)
-ax.set_title("Scatterplot of the true vs pred X momenta")
-ax.set_xlim([np.min(PredictionsNeural),np.max(PredictionsNeural)])
-ax.set_ylim([np.min(bhads[:,0]),np.max(bhads[:,0])])
-ax.set_xlabel("The true X momenta of the tracks from each event")
-ax.set_ylabel("The predicted X momenta of b hadron jets")
-fig.savefig("/home/physics/phujdj/DeepLearningParticlePhysics/ScatterplotNeural")
-
