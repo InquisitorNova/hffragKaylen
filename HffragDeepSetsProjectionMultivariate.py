@@ -47,7 +47,6 @@ class TimeDistributedResidualUnits(keras.layers.Layer):
         self.seq = tf.keras.Sequential([
             layers.TimeDistributed(layers.Dense(d_model, activation = "gelu",  kernel_initializer = "he_normal", kernel_regularizer= regularizers.l1_l2(regularizer_strength))),
             layers.TimeDistributed(layers.Dense(d_model, activation = "gelu",  kernel_initializer = "he_normal", kernel_regularizer= regularizers.l1_l2(regularizer_strength))),
-            MCDropout(dropout)
         ])
         self.add = tf.keras.layers.Add()
         self.layer_norm = tf.keras.layers.LayerNormalization()
@@ -65,7 +64,6 @@ class ResidualUnits(keras.layers.Layer):
         self.seq = tf.keras.Sequential([
             layers.Dense(d_model, activation = "gelu",  kernel_initializer = "he_normal", kernel_regularizer= regularizers.l1_l2(regularizer_strength)),
             layers.Dense(d_model, activation = "gelu",  kernel_initializer = "he_normal", kernel_regularizer= regularizers.l1_l2(regularizer_strength)),
-            MCDropout(dropout)
         ])
         self.add = tf.keras.layers.Add()
         self.layer_norm = tf.keras.layers.LayerNormalization()
@@ -113,6 +111,38 @@ def Mean_Squared_Error(true, meancovs_matrix):
     
     return K.mean(K.square(means-true), axis = -1)
 
+"""
+A weighted version of categorical_crossentropy for keras (2.0.6). This lets you apply a weight to unbalanced classes.
+@url: https://gist.github.com/wassname/ce364fddfc8a025bfab4348cf5de852d
+@author: wassname
+"""
+from keras import backend as K
+def weighted_categorical_crossentropy(weights):
+    """
+    A weighted version of keras.objectives.categorical_crossentropy
+    
+    Variables:
+        weights: numpy array of shape (C,) where C is the number of classes
+    
+    Usage:
+        weights = np.array([0.5,2,10]) # Class one at 0.5, class 2 twice the normal weights, class 3 10x.
+        loss = weighted_categorical_crossentropy(weights)
+        model.compile(loss=loss,optimizer='adam')
+    """
+    
+    weights = K.variable(weights)
+        
+    def loss(y_true, y_pred):
+        # scale predictions so that the class probas of each sample sum to 1
+        y_pred /= K.sum(y_pred, axis=-1, keepdims=True)
+        # clip to prevent NaN's and Inf's
+        y_pred = K.clip(y_pred, K.epsilon(), 1 - K.epsilon())
+        # calc
+        loss = y_true * K.log(y_pred) * weights
+        loss = -K.sum(loss, -1)
+        return loss
+    
+    return loss
 
 # A callback returns a scatterplot of the predicted pxs and associated uncertainties per epoch
 class PredictOnEpoch(tf.keras.callbacks.Callback):
@@ -168,13 +198,14 @@ def DeepSetsProjection(track_layers, jet_layers, b_jet_layers, n_targets, n_targ
     outputs_tracks = tracks
     outputs_jets = jets
     
+    counter = 0
     #The track network extracts information from the track features.
     for nodes in track_layers[:-1]:
-        outputs_tracks = layers.Dense(nodes, activation = "gelu", kernel_initializer="he_normal")(outputs_tracks)
+        outputs_tracks = layers.TimeDistributed(layers.Dense(nodes, activation = "gelu", kernel_initializer="he_normal"))(outputs_tracks)
         outputs_tracks = TimeDistributedResidualUnits(nodes,regularizer_strength, Dropout_rate)(outputs_tracks)
 
     outputs_tracks = layers.TimeDistributed(layers.Dense( 
-    track_layers[-1], activation = "gelu"))(outputs_tracks) # Apply softmax to ouput the results of the track neural network as probabilities
+    track_layers[-1], activation = "softmax"))(outputs_tracks) # Apply softmax to ouput the results of the track neural network as probabilities
     outputs_tracks = Sum()(outputs_tracks) # Sum the outputs to make use of permutation invariance
     
     #The b_jet network extracts information from the b_jet features.
@@ -197,8 +228,8 @@ def DeepSetsProjection(track_layers, jet_layers, b_jet_layers, n_targets, n_targ
     outputs_covariances_jets = layers.Dense(n_targets*(n_targets-1)/2, activation='linear')(outputs)
 
     #The outputs for classifying the remaining bhadron targets.
-    outputs_Target_jets_mass = layers.Dense(256, activation='gelu', kernel_initializer= "he_normal")(outputs_Target_jets)
-    outputs_Target_jets_mass = layers.Dense(256, activation='gelu', kernel_initializer= "he_normal")(outputs_Target_jets_mass)
+    outputs_Target_jets_mass = layers.Dense(64, activation='gelu', kernel_initializer= "he_normal")(outputs_Target_jets)
+    outputs_Target_jets_mass = layers.Dense(64, activation='gelu', kernel_initializer= "he_normal")(outputs_Target_jets_mass)
     outputs_Target_jets_mass = layers.Dense(n_targets_classification, activation='softmax', name = "MassOutput")(outputs_Target_jets_mass)
 
     Outputs_Multivariate = layers.concatenate([outputs_Target_jets,outputs_variances_jets, outputs_covariances_jets], name = "MultivariateLoss")

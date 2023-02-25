@@ -55,8 +55,46 @@ def Match_Tracks(jets, tracks):
     ak.where(delta_phis > np.pi, delta_phis - np.pi, delta_phis)
 
     # Returns a list of true and false, determining which tracks belong to those jets.
-    return np.sqrt(delta_phis**2 + delta_etas**2) < 0.4 
+    return np.sqrt(delta_phis**2 + delta_etas**2) < 0.4
 
+#Finds the associated electrons for each jet
+def Match_Electrons(jets, electrons):
+    "Used to determine if a set of electrons belong to a particlular set of jets"
+
+    jet_eta = jets["AnalysisAntiKt4TruthJets_eta"]
+    jet_phi = jets["AnalysisAntiKt4TruthJets_phi"]
+
+    electron_eta =  electrons["AnalysisElectrons_eta"]
+    electron_phi = electrons["AnalysisElectrons_phi"]
+    
+    delta_etas = jet_eta - electron_eta
+    delta_phis = np.abs(jet_phi - electron_phi)
+
+
+    # Map the phis from a cyclical period onto a linear relation
+    ak.where(delta_phis > np.pi, delta_phis - np.pi, delta_phis)
+
+    # Returns a list of true and false, determining which tracks belong to those jets.
+    return np.sqrt(delta_phis**2 + delta_etas**2) < 0.4
+
+#Finds the associated muons for each jet
+def Match_Muons(jets, muons):
+    "Used to determine if a set of muons belong to a particular set of muons"
+
+    jet_eta = jets["AnalysisAntiKt4TruthJets_eta"]
+    jet_phi = jets["AnalysisAntiKt4TruthJets_phi"]
+
+    muon_eta = muons["AnalysisMuons_eta"]
+    muon_phi = muons["AnalysisMuons_phi"]
+
+    delta_etas = jet_eta - muon_eta
+    delta_phis = np.abs(jet_phi - muon_phi)
+
+    # Map the phis from a cyclical period onto a linear relation
+    ak.where(delta_phis > np.pi, delta_phis - np.pi, delta_phis)
+
+    # Returns a list of true and false, determining which tracks belong to those jets.
+    return np.sqrt(delta_phis**2 + delta_etas**2) < 0.4
 
 # In[105]:
 
