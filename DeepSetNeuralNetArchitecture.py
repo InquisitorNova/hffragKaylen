@@ -36,7 +36,24 @@ Predicted_Bhad_px = np.array([])
 Predicted_Bhad_px_uncertainties = np.array([])
 
 # In[104]:
+#Finds the associated muons for each jet
+def Match_Reconstructed(true_jets, reconstructed_jets):
+    "Used to determine if a set of muons belong to a particular set of muons"
 
+    true_jet_eta = true_jets["AnalysisAntiKt4TruthJets_eta"]
+    true_jet_phi = true_jets["AnalysisAntiKt4TruthJets_phi"]
+
+    reconstructed_jets_eta = reconstructed_jets["AnalysisJets_eta"]
+    reconstructed_jets_phi = reconstructed_jets["AnalysisJets_phi"]
+
+    delta_etas = true_jet_eta - reconstructed_jets_eta
+    delta_phis = np.abs(true_jet_phi - reconstructed_jets_phi)
+
+    # Map the phis from a cyclical period onto a linear relation
+    ak.where(delta_phis > np.pi, delta_phis - np.pi, delta_phis)
+
+    # Returns a list of true and false, determining which tracks belong to those jets.
+    return np.sqrt(delta_phis**2 + delta_etas**2) < 0.4
 
 # Find the associated tracks for each jet
 def Match_Tracks(jets, tracks):
@@ -350,13 +367,13 @@ def DeepSetNeuralNetwork(track_layers, jet_layers, n_targets,optimizer, MASKVAL=
     
 
     outputs = layers.Dense(n_targets + n_targets*(n_targets-1)//2)(outputs) # The output will have a number of neurons needed to form the mean covariance function of the loss function
-
+    #outputs = layers.Dense(n_targets)(outputs)
     Model = keras.Model(inputs=inputs, outputs=outputs) #Create a keras model
 
     # Specify the neural network's optimizer and loss function
     Model.compile(
     optimizer=optimizer, # Optimizer used to train model
-    loss= tf.keras.losses.MSE
+    loss= LogNormal_Loss_Function
     )
 
     return Model

@@ -239,6 +239,33 @@ def binneddensity(xs, binning, label=None, xlabel=None, ylabel="binned probabili
 
   return fig
 
+def binneddensitysub(xs, binning, ax, label=None, xlabel=None, ylabel="binned probability density"):
+  #fig = figure.Figure(figsize=(8, 8))
+  #plt = fig.add_subplot(111)
+
+  ys , yerrs = hist(xs, binning, normalized=True)
+
+  # determine the central value of each histogram bin
+  # as well as the width of each bin
+  # this assumes a fixed bin size.
+  xs = (binning[1:]+binning[:-1]) / 2.0
+  xerrs = ((binning[1:]-binning[:-1]) / 2.0)
+
+  ax.errorbar \
+    ( xs
+    , ys
+    , xerr=xerrs
+    , yerr=yerrs
+    , label=label
+    , linewidth=0
+    , elinewidth=2
+    , marker = 'None'
+    )
+
+  ax.set_xlabel(xlabel)
+  ax.set_ylabel(ylabel)
+
+  return ax
 
 # here is where the training starts.
 
